@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Hand-written fixture: a binding carrying a WS-Policy UsernameToken
+  assertion, the way real enterprise WSDLs (SAP, many .NET/WCF and Java/CXF
+  services) typically attach WS-Security rather than mentioning it in
+  <wsdl:documentation>. Exercises wsdl.detectWSSecurity's raw-document scan.
+-->
+<wsdl:definitions xmlns:wsdl="http://schemas.xmlsoap.org/wsdl/"
+                   xmlns:soap="http://schemas.xmlsoap.org/wsdl/soap/"
+                   xmlns:xs="http://www.w3.org/2001/XMLSchema"
+                   xmlns:wsp="http://schemas.xmlsoap.org/ws/2004/09/policy"
+                   xmlns:wsse="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-secext-1.0.xsd"
+                   xmlns:tns="urn:soapbridge:wssecuritysample"
+                   name="SecureSample"
+                   targetNamespace="urn:soapbridge:wssecuritysample">
+  <wsdl:types>
+    <xs:schema elementFormDefault="qualified" targetNamespace="urn:soapbridge:wssecuritysample">
+      <xs:element name="GetSecret">
+        <xs:complexType>
+          <xs:sequence>
+            <xs:element name="key" type="xs:string"/>
+          </xs:sequence>
+        </xs:complexType>
+      </xs:element>
+      <xs:element name="GetSecretResponse">
+        <xs:complexType>
+          <xs:sequence>
+            <xs:element name="value" type="xs:string"/>
+          </xs:sequence>
+        </xs:complexType>
+      </xs:element>
+    </xs:schema>
+  </wsdl:types>
+  <wsdl:message name="GetSecretSoapIn">
+    <wsdl:part name="parameters" element="tns:GetSecret"/>
+  </wsdl:message>
+  <wsdl:message name="GetSecretSoapOut">
+    <wsdl:part name="parameters" element="tns:GetSecretResponse"/>
+  </wsdl:message>
+  <wsdl:portType name="SecureSamplePortType">
+    <wsdl:operation name="GetSecret">
+      <wsdl:input message="tns:GetSecretSoapIn"/>
+      <wsdl:output message="tns:GetSecretSoapOut"/>
+    </wsdl:operation>
+  </wsdl:portType>
+  <wsdl:binding name="SecureSampleBinding" type="tns:SecureSamplePortType">
+    <wsp:PolicyReference URI="#UsernameTokenPolicy"/>
+    <soap:binding style="document" transport="http://schemas.xmlsoap.org/soap/http"/>
+    <wsdl:operation name="GetSecret">
+      <soap:operation soapAction="urn:soapbridge:wssecuritysample/GetSecret" style="document"/>
+      <wsdl:input>
+        <soap:body use="literal"/>
+      </wsdl:input>
+      <wsdl:output>
+        <soap:body use="literal"/>
+      </wsdl:output>
+    </wsdl:operation>
+  </wsdl:binding>
+  <wsp:Policy wsu:Id="UsernameTokenPolicy" xmlns:wsu="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-utility-1.0.xsd">
+    <wsp:ExactlyOne>
+      <wsp:All>
+        <wsse:SecurityToken>
+          <wsse:TokenType>wsse:UsernameToken</wsse:TokenType>
+        </wsse:SecurityToken>
+      </wsp:All>
+    </wsp:ExactlyOne>
+  </wsp:Policy>
+  <wsdl:service name="SecureSampleService">
+    <wsdl:port name="SecureSamplePort" binding="tns:SecureSampleBinding">
+      <soap:address location="http://localhost:8199/soap/secure"/>
+    </wsdl:port>
+  </wsdl:service>
+</wsdl:definitions>

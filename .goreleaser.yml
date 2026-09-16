@@ -1,0 +1,69 @@
+version: 2
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: soapbridge
+    main: ./cmd/soapbridge
+    binary: soapbridge
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    # Embeds this release's tag into the binary (e.g. "v0.1.0"), read by
+    # cmd/soapbridge/main.go's cliVersion var — it's what lets "generate"
+    # depend on a real published soapbridge version instead of needing a
+    # local checkout when run from an installed binary. Keep this flag in
+    # sync with that var if either is ever renamed.
+    ldflags:
+      - -s -w -X main.cliVersion={{.Version}}
+
+archives:
+  - id: soapbridge
+    formats: [tar.gz]
+    name_template: >-
+      {{ .ProjectName }}_{{ .Os }}_{{ .Arch }}
+
+checksum:
+  name_template: "checksums.txt"
+
+# Publishes Casks/soapbridge.rb to github.com/harshhh28/homebrew-soapbridge
+# (create that repo — empty is fine — before the first release; see
+# CONTRIBUTING.md's "Publishing a release" section). homebrew_casks (not the
+# older, now-deprecated `brews` Formula key) is GoReleaser's current
+# recommended way to publish a precompiled CLI binary. Needs a repo secret
+# named HOMEBREW_TAP_GITHUB_TOKEN with push access to homebrew-soapbridge —
+# the workflow's default GITHUB_TOKEN only covers the repo it runs in.
+homebrew_casks:
+  - name: soapbridge
+    ids:
+      - soapbridge
+    binaries:
+      - soapbridge
+    repository:
+      owner: harshhh28
+      name: homebrew-soapbridge
+      branch: main
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    directory: Casks
+    homepage: "https://github.com/harshhh28/soapbridge"
+    description: "Generate a REST/MCP/OpenAPI gateway from a WSDL SOAP service"
+    commit_msg_template: "Cask update for soapbridge {{ .Tag }}"
+
+release:
+  github:
+    owner: harshhh28
+    name: soapbridge
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^test:"
+      - "^docs:"
