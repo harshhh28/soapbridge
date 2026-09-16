@@ -55,6 +55,18 @@ homebrew_casks:
     homepage: "https://github.com/harshhh28/soapbridge"
     description: "Generate a REST/MCP/OpenAPI gateway from a WSDL SOAP service"
     commit_msg_template: "Cask update for soapbridge {{ .Tag }}"
+    # The binary is only ad-hoc signed (no paid Apple Developer ID / no
+    # notarization), so macOS quarantines it on download and Gatekeeper
+    # silently kills it on first run (confirmed: `soapbridge --version`
+    # exited 137 until `xattr -dr com.apple.quarantine` was run by hand).
+    # Strip the quarantine flag automatically on install instead of making
+    # every user hit and debug that themselves.
+    hooks:
+      post:
+        install: |
+          if OS.mac?
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/soapbridge"]
+          end
 
 release:
   github:
