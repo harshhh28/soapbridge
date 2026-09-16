@@ -39,4 +39,8 @@ jobs:
           cache: true
       - uses: golangci/golangci-lint-action@v6
         with:
-          version: latest
+          # "latest" resolves to the last v1.x release, which can't parse
+          # this repo's v2-schema .golangci.yml ("version: 2"). Pin to a
+          # known-good v2 release instead — this is the exact version
+          # validated locally against this config.
+          version: v2.13.2
