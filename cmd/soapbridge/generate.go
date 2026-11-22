@@ -79,7 +79,7 @@ func newGenerateCmd() *cobra.Command {
 								"so it can't fall back to a published dependency. Pass --soapbridge-dir\n"+
 								"pointing at a soapbridge checkout (the directory containing its go.mod)", err)
 					}
-					pinnedVersion = cliVersion
+					pinnedVersion = moduleVersion(cliVersion)
 					soapbridgeDir = ""
 				}
 			}
@@ -208,6 +208,17 @@ func newGenerateCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&runAfter, "run", false, "build and immediately run the generated server (fast demo loop)")
 
 	return cmd
+}
+
+// moduleVersion turns the CLI's embedded release version into a valid Go
+// module version. GoReleaser's {{.Version}} drops the tag's leading "v"
+// ("0.1.1"), but go.mod requires one ("v0.1.1"); without it, `go mod tidy`
+// in the generated module fails with "unknown revision".
+func moduleVersion(v string) string {
+	if v != "" && !strings.HasPrefix(v, "v") {
+		return "v" + v
+	}
+	return v
 }
 
 // checkOutDirSafe refuses to scaffold into a directory that already
