@@ -131,3 +131,40 @@ func TestMCPOverHTTP_ToolsList(t *testing.T) {
 		t.Errorf("got %d tools", len(toolList))
 	}
 }
+
+func TestInferAnnotations(t *testing.T) {
+	cases := []struct {
+		name               string
+		readOnly, destruct *bool // expected; nil = omitted
+	}{
+		{"GetCustomer", ptr(true), nil},
+		{"listOrders", ptr(true), nil},
+		{"query_items", ptr(true), nil},
+		{"DeleteCustomer", ptr(false), ptr(true)},
+		{"CancelOrder", ptr(false), ptr(true)},
+		{"CreateCustomer", nil, nil},
+		{"Add", nil, nil},
+		{"Getaway", nil, nil},
+	}
+	for _, c := range cases {
+		a := InferAnnotations(c.name)
+		if a.OpenWorldHint == nil || !*a.OpenWorldHint {
+			t.Errorf("%s: openWorldHint should be true", c.name)
+		}
+		if !eq(a.ReadOnlyHint, c.readOnly) {
+			t.Errorf("%s: readOnlyHint = %v, want %v", c.name, a.ReadOnlyHint, c.readOnly)
+		}
+		if !eq(a.DestructiveHint, c.destruct) {
+			t.Errorf("%s: destructiveHint = %v, want %v", c.name, a.DestructiveHint, c.destruct)
+		}
+	}
+}
+
+func ptr(b bool) *bool { return &b }
+
+func eq(a, b *bool) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return *a == *b
+}

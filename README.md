@@ -180,6 +180,27 @@ wherever the WSDL says.
 - MCP: `initialize`, `tools/list`, `tools/call` over stdio and a
   synchronous HTTP transport (not the full Streamable HTTP SSE server-push
   option)
+- MCP tool annotations: WSDL has no standard "mutates state" field, so
+  `tools/list` **guesses** `readOnlyHint`/`idempotentHint` (`get*`, `list*`,
+  `query*`, `search*`, ...) and `destructiveHint` (`delete*`, `remove*`,
+  `cancel*`, ...) from the operation name's leading verb. Names that match
+  neither (e.g. noun-style `CountryName`) are left unannotated, so MCP hosts
+  apply their cautious defaults. Every tool sets `openWorldHint: true`.
+  Because a name can be wrong in either direction (a `GetNextTicket` that
+  mutates), the generated `config.yaml` takes authoritative overrides, which
+  win over the guess and are kept when you re-run `generate`:
+
+  ```yaml
+  annotations:
+    readOnly:    [CountryName, CurrencyName]  # no side effects
+    mutating:    [GetNextTicket]              # changes state, not destructive
+    destructive: [PurgeCache]                 # deletes / irreversibly changes data
+  ```
+
+  `generate` prints which operations are still unannotated. Names are
+  case-sensitive; unknown names warn, and a typo'd key or an operation listed
+  twice is an error. Overrides are embedded at build time, so rebuild
+  (`go run .`) after editing.
 
 ## Explicit non-goals (v1)
 

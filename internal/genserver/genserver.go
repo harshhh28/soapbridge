@@ -14,6 +14,8 @@ import (
 	"text/template"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/harshhh28/soapbridge/mcpgen"
 )
 
 //go:embed templates/main.go.tmpl
@@ -40,6 +42,10 @@ type Options struct {
 	EnableOpenAPI  bool
 	Addr           string
 
+	// Annotations are per-operation MCP annotation overrides written into
+	// config.yaml (and embedded into the generated binary).
+	Annotations mcpgen.Overrides
+
 	// Exactly one of these determines how the generated go.mod depends on
 	// soapbridge:
 	//   - SoapbridgeDir set: a local "replace" to this absolute path (dev
@@ -61,6 +67,35 @@ type Config struct {
 	Addr    string `yaml:"addr"`
 	MCP     bool   `yaml:"mcp"`
 	OpenAPI bool   `yaml:"openapi"`
+
+	// Annotations override the name-based MCP tool annotation guesses.
+	Annotations mcpgen.Overrides `yaml:"annotations,omitempty"`
+}
+
+const annotationsHint = `
+# MCP tool annotations are guessed from operation names (get*/list*/... are
+# read-only, delete*/remove*/... are destructive). WSDL can't express this, so
+# state it here for anything the guess misses or gets wrong. Lists win over
+# the guess. Names are case-sensitive operation names. Rebuild (go run .) to apply.
+#
+# annotations:
+#   readOnly:    [CountryName]    # no side effects
+#   mutating:    [GetNextTicket]  # changes state, not destructive
+#   destructive: [PurgeCache]     # deletes or irreversibly changes data
+`
+
+// ReadExistingAnnotations returns the annotations section of an existing
+// config.yaml in dir, so re-running generate into the same directory doesn't
+// wipe a person's overrides. A missing config.yaml is not an error.
+func ReadExistingAnnotations(dir string) (mcpgen.Overrides, error) {
+	data, err := os.ReadFile(filepath.Join(dir, "config.yaml"))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return mcpgen.Overrides{}, nil
+		}
+		return mcpgen.Overrides{}, err
+	}
+	return mcpgen.ParseOverrides(data)
 }
 
 // Scaffold writes a complete Go module to opts.OutDir.
@@ -95,10 +130,13 @@ func Scaffold(opts Options) error {
 		return err
 	}
 
-	cfg := Config{Name: opts.ServiceName, Addr: opts.Addr, MCP: opts.EnableMCP, OpenAPI: opts.EnableOpenAPI}
+	cfg := Config{Name: opts.ServiceName, Addr: opts.Addr, MCP: opts.EnableMCP, OpenAPI: opts.EnableOpenAPI, Annotations: opts.Annotations}
 	cfgBytes, err := yaml.Marshal(cfg)
 	if err != nil {
 		return fmt.Errorf("encoding config.yaml: %w", err)
+	}
+	if opts.Annotations.IsZero() && opts.EnableMCP {
+		cfgBytes = append(cfgBytes, annotationsHint...)
 	}
 	if err := writeFile(filepath.Join(opts.OutDir, "config.yaml"), cfgBytes); err != nil {
 		return err

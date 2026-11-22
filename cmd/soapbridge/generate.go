@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/harshhh28/soapbridge/internal/genserver"
+	"github.com/harshhh28/soapbridge/mcpgen"
 	"github.com/harshhh28/soapbridge/wsdl"
 )
 
@@ -100,6 +101,29 @@ func newGenerateCmd() *cobra.Command {
 				return err
 			}
 
+			// Keep any annotation overrides from a previous generate into
+			// this directory, then report which operations still have no
+			// read-only/destructive hint so the gap is visible.
+			overrides, err := genserver.ReadExistingAnnotations(outAbs)
+			if err != nil {
+				return fmt.Errorf("reading existing %s: %w", filepath.Join(outAbs, "config.yaml"), err)
+			}
+			if enableMCP {
+				tools := mcpgen.GenerateTools(def)
+				warns, err := mcpgen.ApplyOverrides(tools, overrides)
+				if err != nil {
+					return err
+				}
+				for _, w := range warns {
+					printf("  WARNING: %s\n", w)
+				}
+				if un := mcpgen.Unannotated(tools); len(un) > 0 {
+					printf("  NOTE: %d of %d MCP tools have no read-only/destructive annotation: %s\n", len(un), len(tools), strings.Join(un, ", "))
+					printf("        Hosts treat them as possibly destructive. If you know better, list them under\n")
+					printf("        annotations: readOnly / mutating / destructive in %s\n", filepath.Join(outAbs, "config.yaml"))
+				}
+			}
+
 			wsdlBytes, err := wsdl.Fetch(wsdlSource)
 			if err != nil {
 				return fmt.Errorf("re-reading WSDL source to embed it: %w", err)
@@ -132,6 +156,7 @@ func newGenerateCmd() *cobra.Command {
 				EnableMCP:      enableMCP,
 				EnableOpenAPI:  enableOpenAPI,
 				Addr:           addr,
+				Annotations:    overrides,
 			}
 			if err := genserver.Scaffold(opts); err != nil {
 				return fmt.Errorf("scaffolding generated server: %w", err)

@@ -15,6 +15,9 @@ import (
 	"log"
 	"net/http"
 	"os"
+{{- if .EnableMCP}}
+	"strings"
+{{- end}}
 
 	"github.com/harshhh28/soapbridge/gateway"
 {{- if .EnableMCP}}
@@ -23,11 +26,14 @@ import (
 {{- if .EnableOpenAPI}}
 	"github.com/harshhh28/soapbridge/openapigen"
 {{- end}}
+{{- if .EnableMCP}}
+	"github.com/harshhh28/soapbridge/model"
+{{- end}}
 	"github.com/harshhh28/soapbridge/wsdl"
 )
 
-//go:embed service.wsdl
-var embeddedWSDL embed.FS
+//go:embed service.wsdl config.yaml
+var embeddedFiles embed.FS
 
 func main() {
 	addr := flag.String("addr", getenv("ADDR", "{{.Addr}}"), "REST server listen address")
@@ -36,7 +42,7 @@ func main() {
 {{- end}}
 	flag.Parse()
 
-	data, err := embeddedWSDL.ReadFile("service.wsdl")
+	data, err := embeddedFiles.ReadFile("service.wsdl")
 	if err != nil {
 		log.Fatalf("reading embedded WSDL: %v", err)
 	}
@@ -53,12 +59,14 @@ func main() {
 	if binding == nil {
 		log.Fatalf("WSDL %q has no usable SOAP binding", def.Name)
 	}
+{{- if .EnableMCP}}
 	client := gateway.NewClient(binding.EndpointURL)
+{{- end}}
 	log.Printf("soapbridge gateway for %q: %d operations, upstream SOAP endpoint %s", def.Name, len(def.Operations), binding.EndpointURL)
 
 {{- if .EnableMCP}}
 	if *stdio {
-		tools := mcpgen.GenerateTools(def)
+		tools := annotatedTools(def)
 		srv := mcpgen.NewServer(def.Name, "{{.ServiceVersion}}", tools, client)
 		if err := srv.ServeStdio(context.Background(), os.Stdin, os.Stdout); err != nil {
 			log.Fatalf("MCP stdio server: %v", err)
@@ -73,7 +81,7 @@ func main() {
 	}
 
 {{- if .EnableMCP}}
-	mcpTools := mcpgen.GenerateTools(def)
+	mcpTools := annotatedTools(def)
 	mcpServer := mcpgen.NewServer(def.Name, "{{.ServiceVersion}}", mcpTools, client)
 	mux.HandleFunc("/mcp", mcpServer.HTTPHandler())
 {{- end}}
@@ -97,6 +105,34 @@ func main() {
 	log.Printf("listening on %s", *addr)
 	log.Fatal(http.ListenAndServe(*addr, mux))
 }
+
+{{- if .EnableMCP}}
+// annotatedTools builds the MCP tools and applies the annotations: overrides
+// from the embedded config.yaml on top of the name-based guesses. A bad
+// overrides section is fatal rather than silently ignored.
+func annotatedTools(def *model.Definition) []mcpgen.Tool {
+	tools := mcpgen.GenerateTools(def)
+	cfg, err := embeddedFiles.ReadFile("config.yaml")
+	if err != nil {
+		log.Fatalf("reading embedded config.yaml: %v", err)
+	}
+	overrides, err := mcpgen.ParseOverrides(cfg)
+	if err != nil {
+		log.Fatalf("config.yaml: %v", err)
+	}
+	warnings, err := mcpgen.ApplyOverrides(tools, overrides)
+	if err != nil {
+		log.Fatalf("config.yaml: %v", err)
+	}
+	for _, w := range warnings {
+		log.Printf("WARNING: %s", w)
+	}
+	if un := mcpgen.Unannotated(tools); len(un) > 0 {
+		log.Printf("note: %d MCP tool(s) have no read-only/destructive annotation (hosts will treat them cautiously): %s", len(un), strings.Join(un, ", "))
+	}
+	return tools
+}
+{{- end}}
 
 func getenv(key, fallback string) string {
 	if v := os.Getenv(key); v != "" {

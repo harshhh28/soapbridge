@@ -70,11 +70,15 @@ func (s *Server) Handle(ctx context.Context, req rpcRequest) *rpcResponse {
 	case "tools/list":
 		list := make([]map[string]interface{}, 0, len(s.Tools))
 		for _, t := range s.Tools {
-			list = append(list, map[string]interface{}{
+			entry := map[string]interface{}{
 				"name":        t.Name,
 				"description": t.Description,
 				"inputSchema": t.InputSchema,
-			})
+			}
+			if t.Annotations != nil {
+				entry["annotations"] = t.Annotations
+			}
+			list = append(list, entry)
 		}
 		return reply(map[string]interface{}{"tools": list}, nil)
 
