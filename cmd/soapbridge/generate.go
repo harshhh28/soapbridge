@@ -104,13 +104,13 @@ func newGenerateCmd() *cobra.Command {
 			// Keep any annotation overrides from a previous generate into
 			// this directory, then report which operations still have no
 			// read-only/destructive hint so the gap is visible.
-			overrides, err := genserver.ReadExistingAnnotations(outAbs)
+			existing, err := genserver.ReadExisting(outAbs)
 			if err != nil {
 				return fmt.Errorf("reading existing %s: %w", filepath.Join(outAbs, "config.yaml"), err)
 			}
 			if enableMCP {
 				tools := mcpgen.GenerateTools(def)
-				warns, err := mcpgen.ApplyOverrides(tools, overrides)
+				warns, err := mcpgen.ApplyOverrides(tools, existing.Annotations)
 				if err != nil {
 					return err
 				}
@@ -118,9 +118,14 @@ func newGenerateCmd() *cobra.Command {
 					printf("  WARNING: %s\n", w)
 				}
 				if un := mcpgen.Unannotated(tools); len(un) > 0 {
-					printf("  NOTE: %d of %d MCP tools have no read-only/destructive annotation: %s\n", len(un), len(tools), strings.Join(un, ", "))
+					printf("  NOTE: %d of %d MCP tools have no read-only/destructive annotation: %s\n", len(un), len(tools), strings.Join(mcpgen.Abbreviate(un, 10), ", "))
 					printf("        Hosts treat them as possibly destructive. If you know better, list them under\n")
 					printf("        annotations: readOnly / mutating / destructive in %s\n", filepath.Join(outAbs, "config.yaml"))
+				}
+				if size := mcpgen.ListSize(tools); size > mcpgen.AutoCompactThreshold() && existing.ToolSchemas != "full" {
+					printf("  NOTE: the full MCP tools/list would be %.1f MB (too large for most hosts), so the gateway\n", float64(size)/1e6)
+					printf("        will advertise compact tool schemas and serve full ones through a describe_operation tool.\n")
+					printf("        Set toolSchemas: full in config.yaml to turn that off.\n")
 				}
 			}
 
@@ -156,7 +161,8 @@ func newGenerateCmd() *cobra.Command {
 				EnableMCP:      enableMCP,
 				EnableOpenAPI:  enableOpenAPI,
 				Addr:           addr,
-				Annotations:    overrides,
+				Annotations:    existing.Annotations,
+				ToolSchemas:    existing.ToolSchemas,
 			}
 			if err := genserver.Scaffold(opts); err != nil {
 				return fmt.Errorf("scaffolding generated server: %w", err)

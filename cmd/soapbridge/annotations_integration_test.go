@@ -239,3 +239,78 @@ func TestGenerateWithoutMCPBuilds(t *testing.T) {
 		t.Fatalf("generate --mcp=false: %v\n%s", err, out)
 	}
 }
+
+func callTool(t *testing.T, baseURL, name, argsJSON string) map[string]interface{} {
+	t.Helper()
+	body := `{"jsonrpc":"2.0","id":9,"method":"tools/call","params":{"name":"` + name + `","arguments":` + argsJSON + `}}`
+	resp, err := http.Post(baseURL+"/mcp", "application/json", strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	data, _ := io.ReadAll(resp.Body)
+	var out struct {
+		Result map[string]interface{} `json:"result"`
+	}
+	if err := json.Unmarshal(data, &out); err != nil {
+		t.Fatalf("%v: %s", err, data)
+	}
+	return out.Result
+}
+
+// TestToolSchemasSetting: toolSchemas survives regenerate, is validated, and
+// compact mode adds the describe tool end to end.
+func TestToolSchemasSetting(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in -short mode")
+	}
+	repoRoot, _ := filepath.Abs("../..")
+	wsdlPath := filepath.Join(repoRoot, "testdata", "wsdl", "countryinfo.wsdl")
+	outDir := filepath.Join(t.TempDir(), "gw")
+	if out, err := runGenerate(t, repoRoot, wsdlPath, outDir); err != nil {
+		t.Fatalf("generate: %v\n%s", err, out)
+	}
+	cfgPath := filepath.Join(outDir, "config.yaml")
+	cfg, _ := os.ReadFile(cfgPath)
+
+	// Default (auto) on a small WSDL: no describe tool, full schemas.
+	base, _ := startGateway(t, outDir)
+	if _, has := listTools(t, base)["describe_operation"]; has {
+		t.Error("small WSDL in auto mode should not get the describe tool")
+	}
+
+	// Force compact, regenerate: the setting must be preserved.
+	if err := os.WriteFile(cfgPath, append(cfg, []byte("\ntoolSchemas: compact\n")...), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := runGenerate(t, repoRoot, wsdlPath, outDir); err != nil {
+		t.Fatalf("regenerate: %v\n%s", err, out)
+	}
+	if after, _ := os.ReadFile(cfgPath); !strings.Contains(string(after), "toolSchemas: compact") {
+		t.Fatalf("regenerate wiped toolSchemas:\n%s", after)
+	}
+	base, logs := startGateway(t, outDir)
+	tools := listTools(t, base)
+	if _, has := tools["describe_operation"]; !has {
+		t.Fatalf("compact mode should list describe_operation; tools=%d", len(tools))
+	}
+	if !strings.Contains(logs(), "compact tool schemas") {
+		t.Errorf("gateway should log that compact schemas are active:\n%s", logs())
+	}
+	res := callTool(t, base, "describe_operation", `{"name":"CountryName"}`)
+	if res["isError"] != false {
+		t.Errorf("describe_operation failed: %v", res)
+	}
+	// Argument validation still works on a normal tool.
+	if r := callTool(t, base, "CountryName", `{}`); r["isError"] != true {
+		t.Errorf("missing-argument validation should still fail: %v", r)
+	}
+
+	// A bad value must fail loudly at generate time.
+	if err := os.WriteFile(cfgPath, append(cfg, []byte("\ntoolSchemas: tiny\n")...), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := runGenerate(t, repoRoot, wsdlPath, outDir); err == nil {
+		t.Errorf("generate should reject toolSchemas: tiny, got success:\n%s", out)
+	}
+}

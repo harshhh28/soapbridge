@@ -202,6 +202,18 @@ wherever the WSDL says.
   twice is an error. Overrides are embedded at build time, so rebuild
   (`go run .`) after editing.
 
+- MCP tool schemas on large WSDLs: MCP requires each tool's `inputSchema` to
+  be self-contained, so a type used by many operations is repeated in every
+  tool. On one real 289-operation enterprise WSDL that made `tools/list`
+  19.7 MB (654 distinct types, about 0.7 MB). When the full list would exceed
+  1 MiB the gateway automatically switches to **compact schemas**: each tool
+  lists its top-level fields (nested objects become one-line placeholders),
+  and a `describe_operation` tool returns any operation's full schema on
+  demand. That same WSDL's `tools/list` drops to about 260 KB. Validation and
+  calls always use the full schema. Small WSDLs are unaffected. Control it
+  with `toolSchemas: auto | full | compact` in `config.yaml` (kept when you
+  re-run `generate`; rebuild to apply).
+
 ## Explicit non-goals (v1)
 
 Flagged rather than silently mishandled — the parser emits a warning when

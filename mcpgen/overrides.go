@@ -128,3 +128,13 @@ func Unannotated(tools []Tool) []string {
 	sort.Strings(names)
 	return names
 }
+
+// Abbreviate returns names, or its first max entries followed by "and N more"
+// when it is longer, so a message about a large WSDL stays readable.
+func Abbreviate(names []string, max int) []string {
+	if max <= 0 || len(names) <= max {
+		return names
+	}
+	out := append([]string{}, names[:max]...)
+	return append(out, fmt.Sprintf("and %d more", len(names)-max))
+}

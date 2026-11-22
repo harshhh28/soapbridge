@@ -46,6 +46,10 @@ type Options struct {
 	// config.yaml (and embedded into the generated binary).
 	Annotations mcpgen.Overrides
 
+	// ToolSchemas is the MCP toolSchemas setting (auto, full or compact),
+	// written into config.yaml. Empty means auto and is omitted.
+	ToolSchemas string
+
 	// Exactly one of these determines how the generated go.mod depends on
 	// soapbridge:
 	//   - SoapbridgeDir set: a local "replace" to this absolute path (dev
@@ -70,6 +74,10 @@ type Config struct {
 
 	// Annotations override the name-based MCP tool annotation guesses.
 	Annotations mcpgen.Overrides `yaml:"annotations,omitempty"`
+
+	// ToolSchemas controls MCP tools/list schema size: "auto" (default;
+	// compact only when the full list would exceed 1 MiB), "full" or "compact".
+	ToolSchemas string `yaml:"toolSchemas,omitempty"`
 }
 
 const annotationsHint = `
@@ -82,20 +90,43 @@ const annotationsHint = `
 #   readOnly:    [CountryName]    # no side effects
 #   mutating:    [GetNextTicket]  # changes state, not destructive
 #   destructive: [PurgeCache]     # deletes or irreversibly changes data
+#
+# MCP tools/list repeats every type in every tool, which gets huge for big WSDLs.
+# "auto" (default) switches to compact schemas, with full ones served by the
+# describe_operation tool, only when the full list would exceed 1 MiB.
+# toolSchemas: auto   # or: full, compact
 `
 
-// ReadExistingAnnotations returns the annotations section of an existing
-// config.yaml in dir, so re-running generate into the same directory doesn't
-// wipe a person's overrides. A missing config.yaml is not an error.
-func ReadExistingAnnotations(dir string) (mcpgen.Overrides, error) {
+// Existing holds the user-editable settings of an existing config.yaml that
+// re-running generate must not wipe.
+type Existing struct {
+	Annotations mcpgen.Overrides
+	ToolSchemas string
+}
+
+// ReadExisting returns the user-editable settings from an existing
+// config.yaml in dir. A missing config.yaml is not an error.
+func ReadExisting(dir string) (Existing, error) {
 	data, err := os.ReadFile(filepath.Join(dir, "config.yaml"))
 	if err != nil {
 		if os.IsNotExist(err) {
-			return mcpgen.Overrides{}, nil
+			return Existing{}, nil
 		}
-		return mcpgen.Overrides{}, err
+		return Existing{}, err
 	}
-	return mcpgen.ParseOverrides(data)
+	ov, err := mcpgen.ParseOverrides(data)
+	if err != nil {
+		return Existing{}, err
+	}
+	mode, err := mcpgen.ParseSchemaMode(data)
+	if err != nil {
+		return Existing{}, err
+	}
+	ts := string(mode)
+	if mode == mcpgen.SchemaAuto {
+		ts = "" // the default; don't write it back
+	}
+	return Existing{Annotations: ov, ToolSchemas: ts}, nil
 }
 
 // Scaffold writes a complete Go module to opts.OutDir.
@@ -130,12 +161,12 @@ func Scaffold(opts Options) error {
 		return err
 	}
 
-	cfg := Config{Name: opts.ServiceName, Addr: opts.Addr, MCP: opts.EnableMCP, OpenAPI: opts.EnableOpenAPI, Annotations: opts.Annotations}
+	cfg := Config{Name: opts.ServiceName, Addr: opts.Addr, MCP: opts.EnableMCP, OpenAPI: opts.EnableOpenAPI, Annotations: opts.Annotations, ToolSchemas: opts.ToolSchemas}
 	cfgBytes, err := yaml.Marshal(cfg)
 	if err != nil {
 		return fmt.Errorf("encoding config.yaml: %w", err)
 	}
-	if opts.Annotations.IsZero() && opts.EnableMCP {
+	if opts.Annotations.IsZero() && opts.ToolSchemas == "" && opts.EnableMCP {
 		cfgBytes = append(cfgBytes, annotationsHint...)
 	}
 	if err := writeFile(filepath.Join(opts.OutDir, "config.yaml"), cfgBytes); err != nil {

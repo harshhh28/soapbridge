@@ -66,8 +66,7 @@ func main() {
 
 {{- if .EnableMCP}}
 	if *stdio {
-		tools := annotatedTools(def)
-		srv := mcpgen.NewServer(def.Name, "{{.ServiceVersion}}", tools, client)
+		srv := newMCPServer(def, client)
 		if err := srv.ServeStdio(context.Background(), os.Stdin, os.Stdout); err != nil {
 			log.Fatalf("MCP stdio server: %v", err)
 		}
@@ -81,8 +80,7 @@ func main() {
 	}
 
 {{- if .EnableMCP}}
-	mcpTools := annotatedTools(def)
-	mcpServer := mcpgen.NewServer(def.Name, "{{.ServiceVersion}}", mcpTools, client)
+	mcpServer := newMCPServer(def, client)
 	mux.HandleFunc("/mcp", mcpServer.HTTPHandler())
 {{- end}}
 
@@ -107,10 +105,10 @@ func main() {
 }
 
 {{- if .EnableMCP}}
-// annotatedTools builds the MCP tools and applies the annotations: overrides
-// from the embedded config.yaml on top of the name-based guesses. A bad
-// overrides section is fatal rather than silently ignored.
-func annotatedTools(def *model.Definition) []mcpgen.Tool {
+// newMCPServer builds the MCP tools, applies the annotation overrides and the
+// toolSchemas setting from the embedded config.yaml, and returns the server.
+// A bad config section is fatal rather than silently ignored.
+func newMCPServer(def *model.Definition, client *gateway.Client) *mcpgen.Server {
 	tools := mcpgen.GenerateTools(def)
 	cfg, err := embeddedFiles.ReadFile("config.yaml")
 	if err != nil {
@@ -128,9 +126,19 @@ func annotatedTools(def *model.Definition) []mcpgen.Tool {
 		log.Printf("WARNING: %s", w)
 	}
 	if un := mcpgen.Unannotated(tools); len(un) > 0 {
-		log.Printf("note: %d MCP tool(s) have no read-only/destructive annotation (hosts will treat them cautiously): %s", len(un), strings.Join(un, ", "))
+		log.Printf("note: %d MCP tool(s) have no read-only/destructive annotation (hosts will treat them cautiously): %s", len(un), strings.Join(mcpgen.Abbreviate(un, 10), ", "))
 	}
-	return tools
+
+	mode, err := mcpgen.ParseSchemaMode(cfg)
+	if err != nil {
+		log.Fatalf("config.yaml: %v", err)
+	}
+	srv := mcpgen.NewServer(def.Name, "{{.ServiceVersion}}", tools, client)
+	srv.SchemaMode = mode
+	if srv.Compact() {
+		log.Printf("MCP: advertising compact tool schemas (the full tools/list would be %.1f MB); full schemas are served by the describe_operation tool. Set toolSchemas: full in config.yaml to disable.", float64(mcpgen.ListSize(tools))/1e6)
+	}
+	return srv
 }
 {{- end}}
 
